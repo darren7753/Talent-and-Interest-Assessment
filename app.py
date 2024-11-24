@@ -124,29 +124,72 @@ def process_data(selected_provinces: List[str], selected_cities: List[str],
     else:
         return load_filtered_data(province=selected_provinces)
 
-def create_bakat_chart(df: pd.DataFrame, show_real_values: bool) -> px.bar:
-    """Create stacked bar chart for bakat distribution"""
+def create_top_minat_chart(df: pd.DataFrame, show_real_values: bool) -> px.bar:
+    """Create stacked bar chart for top 5 minat distribution with specific top selection criteria."""
     # Prepare data
-    melted_df = df.melt(value_vars=BAKAT_COLUMNS, var_name="bakat_type", value_name="bakat_ket")
-    aggregated_df = melted_df.groupby(["bakat_type", "bakat_ket"]).size().reset_index(name="count")
-    aggregated_df["percentage"] = (
-        aggregated_df["count"] / aggregated_df.groupby("bakat_type")["count"].transform("sum")
-    ) * 100
+    minat_cols = [col for col in df.columns if "minat_" in col and "ket" in col]
+    melted_df = df.melt(value_vars=minat_cols, var_name="minat_type", value_name="minat_ket")
+    
+    # Categorize minat types
+    minat_categories = {
+        "Minat Dasar": [f"minat_{i}_ket" for i in range(1, 9)],
+        "Minat Bidang Metodis": [f"minat_{i}_ket" for i in range(9, 14)],
+        "Minat Bidang Praktis": [f"minat_{i}_ket" for i in range(14, 19)],
+    }
+    melted_df["category"] = melted_df["minat_type"].map(
+        lambda x: next((cat for cat, cols in minat_categories.items() if x in cols), None)
+    )
+
+    # Group by minat type and category, and calculate counts
+    aggregated_df = melted_df.groupby(["minat_type", "category", "minat_ket"]).size().reset_index(name="count")
+    minat_counts = aggregated_df[aggregated_df["minat_ket"] == "Minat"]
+
+    # Get Top 3 Minat Dasar, Top 1 Minat Bidang Metodis, and Top 1 Minat Bidang Praktis
+    top_minat_dasar = (
+        minat_counts[minat_counts["category"] == "Minat Dasar"]
+        .nlargest(3, "count")
+        .sort_values("count", ascending=False)
+    )
+    top_minat_metodis = (
+        minat_counts[minat_counts["category"] == "Minat Bidang Metodis"]
+        .nlargest(1, "count")
+    )
+    top_minat_praktis = (
+        minat_counts[minat_counts["category"] == "Minat Bidang Praktis"]
+        .nlargest(1, "count")
+    )
+    
+    # Combine top selections
+    top_minat = pd.concat([top_minat_dasar, top_minat_metodis, top_minat_praktis])["minat_type"]
+
+    # Ensure the order of minat types
+    top_minat_ordered = list(top_minat_dasar["minat_type"]) + \
+                        list(top_minat_metodis["minat_type"]) + \
+                        list(top_minat_praktis["minat_type"])
+    
+    filtered_df = aggregated_df[aggregated_df["minat_type"].isin(top_minat)]
+    filtered_df["minat_type"] = pd.Categorical(filtered_df["minat_type"], categories=top_minat_ordered, ordered=True)
+    filtered_df = filtered_df.sort_values("minat_type")
 
     # Set chart parameters
     y_axis = "count" if show_real_values else "percentage"
     y_label = "Jumlah" if show_real_values else "Persentase (%)"
     text_template = "%{text}" if show_real_values else "%{text:.2f}%"
 
+    # Add percentage calculation
+    filtered_df["percentage"] = (
+        filtered_df["count"] / filtered_df.groupby("minat_type")["count"].transform("sum")
+    ) * 100
+
     # Create chart
     fig = px.bar(
-        aggregated_df,
-        x="bakat_type",
+        filtered_df,
+        x="minat_type",
         y=y_axis,
-        color="bakat_ket",
-        title="Distribusi Kategori Bakat",
-        category_orders={"bakat_ket": ["Tidak Terukur", "Kurang", "Sedang", "Baik"]},
-        labels={"bakat_type": "Bakat", y_axis: y_label, "bakat_ket": "Kategori Bakat"},
+        color="minat_ket",
+        title="Top 5 Minat",
+        category_orders={"minat_ket": ["Tidak Minat", "Minat"]},
+        labels={"minat_type": "Minat", y_axis: y_label, "minat_ket": "Kategori Minat"},
         color_discrete_map=CHART_COLORS
     )
 
@@ -156,16 +199,52 @@ def create_bakat_chart(df: pd.DataFrame, show_real_values: bool) -> px.bar:
         barmode="stack",
         xaxis=dict(showgrid=False),
         yaxis=dict(showgrid=False),
-        plot_bgcolor="white",
         showlegend=True,
         uniformtext_minsize=14,
         uniformtext_mode="hide",
         margin=dict(t=30)
     )
 
+    # Add background shapes for categories
+    max_y = filtered_df.groupby("minat_type")[y_axis].sum().max() * 1.1  # Add 10% padding
+    shapes = []
+    
+    # Calculate x-positions for each category
+    x_vals = list(filtered_df["minat_type"].unique())
+
+    # Add category labels at the top
+    annotations = [
+        dict(
+            x=x_vals[1],  # Center of Minat Dasar
+            y=max_y,
+            text="Minat Dasar",
+            showarrow=False,
+            font=dict(size=14),
+            yanchor="bottom"
+        ),
+        dict(
+            x=x_vals[3],  # Center of Minat Bidang Metodis
+            y=max_y,
+            text="Minat Bidang Metodis",
+            showarrow=False,
+            font=dict(size=14),
+            yanchor="bottom"
+        ),
+        dict(
+            x=x_vals[4],  # Center of Minat Bidang Praktis
+            y=max_y,
+            text="Minat Bidang Praktis",
+            showarrow=False,
+            font=dict(size=14),
+            yanchor="bottom"
+        )
+    ]
+
+    fig.update_layout(shapes=shapes, annotations=annotations)
+
     fig.update_xaxes(
-        ticktext=[rename_mapping.get(val, val).replace(" ", "<br>") for val in aggregated_df["bakat_type"].unique()],
-        tickvals=aggregated_df["bakat_type"].unique()
+        ticktext=[rename_mapping.get(val, val).replace(" ", "<br>") for val in filtered_df["minat_type"].unique()],
+        tickvals=filtered_df["minat_type"].unique()
     )
 
     for trace in fig.data:
@@ -173,89 +252,122 @@ def create_bakat_chart(df: pd.DataFrame, show_real_values: bool) -> px.bar:
             text=trace.y,
             textposition="inside",
             texttemplate=text_template,
-            textfont=dict(size=16, color="#424242")
+            textfont=dict(size=16)
         )
 
     return fig
 
-def create_minat_charts(df: pd.DataFrame, selected_bakat: str):
-    """Create minat distribution charts for selected bakat category"""
-    minat_cols = [col for col in df.columns if "minat_" in col and "ket" in col]
-    minat_df = df[[selected_bakat] + minat_cols]
-    
-    cols = st.columns(2)
-    for i, category in enumerate(["Baik", "Sedang", "Kurang", "Tidak Terukur"]):
-        create_single_minat_chart(minat_df, selected_bakat, category, cols[i % 2])
-
-def create_single_minat_chart(minat_df: pd.DataFrame, selected_bakat: str, 
-                            category: str, col):
-    """Create a single minat chart for a specific bakat category"""
-    # Filter and prepare data
-    category_filtered_df = minat_df[minat_df[selected_bakat] == category]
-    minat_cols = [col for col in minat_df.columns if "minat_" in col and "ket" in col]
-    
-    minat_aggregated = category_filtered_df.melt(
-        id_vars=[selected_bakat],
-        value_vars=minat_cols,
-        var_name="minat_type",
-        value_name="minat_ket"
-    ).groupby(["minat_type", "minat_ket"]).size().reset_index(name="count")
-
-    minat_aggregated["percentage"] = (
-        minat_aggregated["count"] / 
-        minat_aggregated.groupby("minat_type")["count"].transform("sum")
-    ) * 100
-
-    # Get top 5 minat categories
-    top_minat = (
-        minat_aggregated[minat_aggregated["minat_ket"] == "Minat"]
-        .nlargest(5, "count")
-        .reset_index()
-    )
-    top_categories = top_minat["minat_type"].unique()
-    filtered_df = minat_aggregated[minat_aggregated["minat_type"].isin(top_categories)]
-    filtered_df = filtered_df.sort_values(by=["percentage"], ascending=True)
-
-    # Create chart
+def create_bakat_charts(df: pd.DataFrame, selected_minat: str):
+    """Create side-by-side bakat distribution charts for selected minat category"""
+    # Get the minat column name and rename mapping
     rename_mapping = get_rename_mapping()
-    fig = px.bar(
-        filtered_df,
-        x="minat_type",
-        y="percentage",
-        color="minat_ket",
-        title=f"Top 5 Minat untuk '{rename_mapping.get(selected_bakat)}' Kategori '{category}'",
-        category_orders={"minat_ket": ["Tidak Minat", "Minat"]},
-        color_discrete_map=CHART_COLORS,
-        labels={"percentage": "Persentase (%)", "minat_type": "Minat", "minat_ket": "Kategori Minat"},
-    )
+    minat_name = rename_mapping.get(selected_minat, selected_minat)
+    
+    # Split data by minat category
+    minat_mask = df[selected_minat] == "Minat"
+    minat_df = df[minat_mask]
+    tidak_minat_df = df[~minat_mask]
+    
+    # Get bakat columns
+    bakat_cols = [col for col in df.columns if "bakat_" in col and "ket" in col]
+    
+    # Create side-by-side columns
+    col1, col2 = st.columns(2)
+    
+    def create_single_bakat_chart(data: pd.DataFrame, title: str, container) -> None:
+        if data.empty:
+            return
 
-    # Update layout and formatting
-    fig.update_layout(
-        barmode="stack",
-        xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=False),
-        plot_bgcolor="white",
-        showlegend=True,
-        uniformtext_minsize=10,
-        uniformtext_mode="hide",
-        margin=dict(t=30)
-    )
+        # Prepare data for plotting
+        bakat_counts = []
+        category_order = ["Baik", "Sedang", "Kurang", "Tidak Terukur"]
 
-    fig.update_traces(
-        texttemplate="%{y:.2f}%",
-        textposition="inside",
-        textfont=dict(size=12, color="#424242")
-    )
+        for bakat_col in bakat_cols:
+            # Get value counts for this bakat
+            counts = data[bakat_col].value_counts()
 
-    fig.update_xaxes(
-        ticktext=[rename_mapping.get(val, val).replace(" ", "<br>") 
-                 for val in filtered_df["minat_type"].unique()],
-        tickvals=filtered_df["minat_type"].unique()
-    )
+            # Find the highest available category
+            available_category = None
+            for category in category_order:
+                if category in counts.index:
+                    available_category = category
+                    break
 
-    with col:
-        with st.container(border=True):
-            plotly_events(fig, click_event=False)
+            if available_category is not None:
+                bakat_counts.append({
+                    "bakat": bakat_col,
+                    "count": counts[available_category],
+                    "category": available_category
+                })
+
+        if not bakat_counts:
+            return
+
+        # Convert to DataFrame and sort by count
+        df_counts = pd.DataFrame(bakat_counts)
+        df_counts = df_counts.sort_values("count", ascending=False)  # For vertical bars
+
+        # Create vertical bar chart
+        fig = px.bar(
+            df_counts,
+            x="bakat",
+            y="count",
+            color="category",
+            title=title,
+            color_discrete_map=CHART_COLORS,
+            labels={"category": "Kategori Bakat"},
+        )
+
+        # Update layout
+        fig.update_layout(
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.6,
+                xanchor="center",
+                x=0.5
+            ),
+            plot_bgcolor="white",
+            uniformtext_minsize=14,
+            uniformtext_mode="hide",
+            xaxis_title="Bakat",
+            yaxis_title="Jumlah",
+        )
+
+        # Update axes
+        fig.update_xaxes(
+            ticktext=[rename_mapping.get(val, val).replace(" ", "<br>") for val in df_counts["bakat"]],
+            tickvals=df_counts["bakat"],
+            showgrid=False
+        )
+        fig.update_yaxes(showgrid=False)
+
+        # Update traces with conditional font color
+        for trace in fig.data:
+            trace.update(
+                text=trace.y,
+                textposition="auto",
+                texttemplate="%{text:,}",
+                textfont=dict(size=16)
+            )
+
+        # Display chart in container
+        with container:
+            with st.container(border=True):
+                plotly_events(fig, click_event=False)
+    
+    # Create charts for both categories
+    create_single_bakat_chart(
+        minat_df, 
+        f"Distribusi Bakat untuk {minat_name}\n(Kategori Minat)", 
+        col1
+    )
+    create_single_bakat_chart(
+        tidak_minat_df, 
+        f"Distribusi Bakat untuk {minat_name}\n(Kategori Tidak Minat)", 
+        col2
+    )
 
 def main():
     """Main application function"""
@@ -282,13 +394,15 @@ def main():
         # Create and display bakat chart
         with st.container(border=True):
             show_real_values = st.checkbox("Tampilkan Nilai Real", value=False)
-            fig = create_bakat_chart(final_filtered_df, show_real_values)
-            selected_bakat_dict = plotly_events(fig, click_event=True)
+            fig = create_top_minat_chart(final_filtered_df, show_real_values)
+            selected_minat_dict = plotly_events(fig, click_event=True)
 
         # Display minat charts if bakat is selected
-        st.info("Silakan klik salah satu bar di atas untuk melihat minat", icon="ℹ️")
-        if selected_bakat_dict:
-            create_minat_charts(final_filtered_df, selected_bakat_dict[0]["x"])
+        st.info("Silakan klik salah satu bar di atas untuk melihat bakat yang bersangkutan", icon="ℹ️")
+
+        if selected_minat_dict:
+            selected_minat = selected_minat_dict[0]["x"]  # Get the minat column name
+            create_bakat_charts(final_filtered_df, selected_minat)
     else:
         st.info("Silakan pilih satu atau lebih provinsi", icon="ℹ️")
 
