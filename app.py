@@ -1,7 +1,9 @@
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 import pandas as pd
 import json
+
 from streamlit_plotly_events import plotly_events
 from typing import List, Dict, Optional, Tuple
 
@@ -15,7 +17,10 @@ CHART_COLORS = {
     "Sedang": "#64ccc5",
     "Baik": "#176b87",
     "Minat": "#64ccc5",
-    "Tidak Minat": "#f7b787"
+    "Tidak Minat": "#f7b787",
+    "Minat Bidang Praktis": "rgba(255, 182, 193, 0.6)",
+    "Minat Bidang Metodis": "rgba(144, 238, 144, 0.6)",
+    "Minat Dasar": "rgba(173, 216, 230, 0.6)"
 }
 
 def initialize_page():
@@ -181,79 +186,123 @@ def create_top_minat_chart(df: pd.DataFrame, show_real_values: bool) -> px.bar:
         filtered_df["count"] / filtered_df.groupby("minat_type")["count"].transform("sum")
     ) * 100
 
-    # Create chart
-    fig = px.bar(
-        filtered_df,
-        x="minat_type",
-        y=y_axis,
-        color="minat_ket",
-        title="Top 5 Minat",
-        category_orders={"minat_ket": ["Tidak Minat", "Minat"]},
-        labels={"minat_type": "Minat", y_axis: y_label, "minat_ket": "Kategori Minat"},
-        color_discrete_map=CHART_COLORS
-    )
+    # Create chart with separate color and opacity
+    fig = go.Figure()
 
-    # Update layout and formatting
+    # Add bars for Tidak Minat and Minat with opacity for first legend
+    for minat_ket in ["Tidak Minat", "Minat"]:
+        subset = filtered_df[filtered_df["minat_ket"] == minat_ket]
+        fig.add_trace(go.Bar(
+            x=subset["minat_type"],
+            y=subset[y_axis],
+            name=minat_ket,
+            marker_color=CHART_COLORS[minat_ket],
+            text=subset[y_axis],
+            hovertext=subset[["minat_type", "minat_ket", y_axis]].apply(
+                lambda row: f"{row[y_axis]}" if show_real_values else f"{row[y_axis]:.2f}%",
+                axis=1
+            ),  # Custom hover text
+            hovertemplate="%{hovertext}",
+            textposition="inside",
+            texttemplate=text_template,
+            textfont=dict(size=16),
+            legendgroup="Tingkatan",
+            legendgrouptitle_text="Tingkatan Minat"
+        ))
+
+    # Prepare category background and category legend traces
+    max_y = filtered_df.groupby("minat_type")[y_axis].sum().max() * 1.1  # Add 10% padding
+    x_vals = list(range(len(filtered_df["minat_type"].unique())))
+    
+    shapes = [
+        # Vertical lines
+        {
+            "type": "line",
+            "x0": x_vals[3] - 0.5,
+            "x1": x_vals[3] - 0.5,
+            "y0": 0,
+            "y1": max_y,
+            "line": {
+                "color": "gray",
+                "width": 2,
+                "dash": "dash"
+            }
+        },
+        {
+            "type": "line",
+            "x0": x_vals[4] - 0.5,
+            "x1": x_vals[4] - 0.5,
+            "y0": 0,
+            "y1": max_y,
+            "line": {
+                "color": "gray",
+                "width": 2,
+                "dash": "dash"
+            }
+        }
+    ]
+
+    # Background shapes for categories
+    background_shapes = [
+        # Minat Dasar (light blue)
+        dict(
+            type="rect",
+            x0=-0.5, x1=2.5,
+            y0=0, y1=max_y,
+            fillcolor="rgba(173, 216, 230, 0.2)",
+            line=dict(width=0)
+        ),
+        # Minat Bidang Metodis (light green)
+        dict(
+            type="rect",
+            x0=2.5, x1=3.5,
+            y0=0, y1=max_y,
+            fillcolor="rgba(144, 238, 144, 0.2)",
+            line=dict(width=0)
+        ),
+        # Minat Bidang Praktis (light pink)
+        dict(
+            type="rect",
+            x0=3.5, x1=4.5,
+            y0=0, y1=max_y,
+            fillcolor="rgba(255, 182, 193, 0.2)",
+            line=dict(width=0)
+        )
+    ]
+
+    for category, color in CHART_COLORS.items():
+        if category in ["Minat Dasar", "Minat Bidang Metodis", "Minat Bidang Praktis"]:
+            fig.add_trace(go.Bar(
+                x=[None],
+                y=[None],
+                marker_color=color,
+                name=category,
+                showlegend=True,
+                legendgroup="Kategori",
+                legendgrouptitle_text="Kategori Minat"
+            ))
+
+    # Update layout
     rename_mapping = get_rename_mapping()
     fig.update_layout(
         barmode="stack",
         xaxis=dict(showgrid=False),
         yaxis=dict(showgrid=False),
+        title="Top 5 Minat",
+        yaxis_title=y_label,
+        xaxis_title="Minat",
         showlegend=True,
         uniformtext_minsize=14,
         uniformtext_mode="hide",
-        margin=dict(t=30)
+        margin=dict(t=30),
+        shapes=shapes + background_shapes
     )
 
-    # Add background shapes for categories
-    max_y = filtered_df.groupby("minat_type")[y_axis].sum().max() * 1.1  # Add 10% padding
-    shapes = []
-    
-    # Calculate x-positions for each category
-    x_vals = list(filtered_df["minat_type"].unique())
-
-    # Add category labels at the top
-    annotations = [
-        dict(
-            x=x_vals[1],  # Center of Minat Dasar
-            y=max_y,
-            text="Minat Dasar",
-            showarrow=False,
-            font=dict(size=14),
-            yanchor="bottom"
-        ),
-        dict(
-            x=x_vals[3],  # Center of Minat Bidang Metodis
-            y=max_y,
-            text="Minat Bidang Metodis",
-            showarrow=False,
-            font=dict(size=14),
-            yanchor="bottom"
-        ),
-        dict(
-            x=x_vals[4],  # Center of Minat Bidang Praktis
-            y=max_y,
-            text="Minat Bidang Praktis",
-            showarrow=False,
-            font=dict(size=14),
-            yanchor="bottom"
-        )
-    ]
-
-    fig.update_layout(shapes=shapes, annotations=annotations)
-
+    # Update x-axis ticks
     fig.update_xaxes(
         ticktext=[rename_mapping.get(val, val).replace(" ", "<br>") for val in filtered_df["minat_type"].unique()],
-        tickvals=filtered_df["minat_type"].unique()
+        tickvals=x_vals
     )
-
-    for trace in fig.data:
-        trace.update(
-            text=trace.y,
-            textposition="inside",
-            texttemplate=text_template,
-            textfont=dict(size=16)
-        )
 
     return fig
 
@@ -315,7 +364,7 @@ def create_bakat_charts(df: pd.DataFrame, selected_minat: str):
             color="category",
             title=title,
             color_discrete_map=CHART_COLORS,
-            labels={"category": "Kategori Bakat"},
+            labels={"category": "Kategori Bakat", "bakat": "Bakat", "count": "Jumlah"},
         )
 
         # Update layout
@@ -349,7 +398,10 @@ def create_bakat_charts(df: pd.DataFrame, selected_minat: str):
                 text=trace.y,
                 textposition="auto",
                 texttemplate="%{text:,}",
-                textfont=dict(size=16)
+                textfont=dict(size=16),
+                hovertemplate=(
+                    "%{y:,}"
+                )
             )
 
         # Display chart in container
