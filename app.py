@@ -201,7 +201,7 @@ def create_top_minat_chart(df: pd.DataFrame, show_real_values: bool) -> px.bar:
             hovertext=subset[["minat_type", "minat_ket", y_axis]].apply(
                 lambda row: f"{row[y_axis]}" if show_real_values else f"{row[y_axis]:.2f}%",
                 axis=1
-            ),  # Custom hover text
+            ),
             hovertemplate="%{hovertext}",
             textposition="inside",
             texttemplate=text_template,
@@ -211,7 +211,7 @@ def create_top_minat_chart(df: pd.DataFrame, show_real_values: bool) -> px.bar:
         ))
 
     # Prepare category background and category legend traces
-    max_y = filtered_df.groupby("minat_type")[y_axis].sum().max() * 1.1  # Add 10% padding
+    max_y = filtered_df.groupby("minat_type")[y_axis].sum().max() * 1.1
     x_vals = list(range(len(filtered_df["minat_type"].unique())))
     
     shapes = [
@@ -249,7 +249,7 @@ def create_top_minat_chart(df: pd.DataFrame, show_real_values: bool) -> px.bar:
             type="rect",
             x0=-0.5, x1=2.5,
             y0=0, y1=max_y,
-            fillcolor="rgba(173, 216, 230, 0.2)",
+            fillcolor="rgba(173, 216, 230, 0.3)",
             line=dict(width=0)
         ),
         # Minat Bidang Metodis (light green)
@@ -257,7 +257,7 @@ def create_top_minat_chart(df: pd.DataFrame, show_real_values: bool) -> px.bar:
             type="rect",
             x0=2.5, x1=3.5,
             y0=0, y1=max_y,
-            fillcolor="rgba(144, 238, 144, 0.2)",
+            fillcolor="rgba(144, 238, 144, 0.3)",
             line=dict(width=0)
         ),
         # Minat Bidang Praktis (light pink)
@@ -265,7 +265,7 @@ def create_top_minat_chart(df: pd.DataFrame, show_real_values: bool) -> px.bar:
             type="rect",
             x0=3.5, x1=4.5,
             y0=0, y1=max_y,
-            fillcolor="rgba(255, 182, 193, 0.2)",
+            fillcolor="rgba(255, 182, 193, 0.3)",
             line=dict(width=0)
         )
     ]
@@ -303,6 +303,10 @@ def create_top_minat_chart(df: pd.DataFrame, show_real_values: bool) -> px.bar:
         ticktext=[rename_mapping.get(val, val).replace(" ", "<br>") for val in filtered_df["minat_type"].unique()],
         tickvals=x_vals
     )
+
+    # Update layer property to place shapes behind
+    for shape in fig.layout.shapes:
+        shape["layer"] = "below" 
 
     return fig
 
@@ -354,7 +358,7 @@ def create_bakat_charts(df: pd.DataFrame, selected_minat: str):
 
         # Convert to DataFrame and sort by count
         df_counts = pd.DataFrame(bakat_counts)
-        df_counts = df_counts.sort_values("count", ascending=False)  # For vertical bars
+        df_counts = df_counts.sort_values("count", ascending=False)
 
         # Create vertical bar chart
         fig = px.bar(
@@ -453,7 +457,7 @@ def main():
         st.info("Silakan klik salah satu bar di atas untuk melihat bakat yang bersangkutan", icon="ℹ️")
 
         if selected_minat_dict:
-            selected_minat = selected_minat_dict[0]["x"]  # Get the minat column name
+            selected_minat = selected_minat_dict[0]["x"]
             create_bakat_charts(final_filtered_df, selected_minat)
     else:
         st.info("Silakan pilih satu atau lebih provinsi", icon="ℹ️")
